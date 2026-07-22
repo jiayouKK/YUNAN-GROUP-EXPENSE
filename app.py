@@ -473,17 +473,38 @@ if member_names and debts:
         if d["creditor"] in net_balance:
             net_balance[d["creditor"]] += rem
 
-    cols = st.columns(min(len(member_names), 4))
+    cols = st.columns(min(len(member_names), 3))
     for idx, m in enumerate(member_names):
         b = round(net_balance[m], 2)
         col = cols[idx % len(cols)]
+
+        if b > 0.01:
+            bg_color = "#e6f4ea"
+            text_color = "#1e7e34"
+            status_text = "应收回"
+            amount_text = f"{b} MYR"
+        elif b < -0.01:
+            bg_color = "#fdecea"
+            text_color = "#c62828"
+            status_text = "需支付"
+            amount_text = f"{abs(b)} MYR"
+        else:
+            bg_color = "#f0f0f0"
+            text_color = "#555555"
+            status_text = "打平"
+            amount_text = "0 MYR"
+
         with col:
-            if b > 0.01:
-                st.metric(label=f"✅ {m}", value=f"{b} MYR", delta="应收回", delta_color="normal")
-            elif b < -0.01:
-                st.metric(label=f"❌ {m}", value=f"{abs(b)} MYR", delta="需支付", delta_color="inverse")
-            else:
-                st.metric(label=f"⚖️ {m}", value="打平", delta="没有欠款")
+            st.markdown(
+                f"""
+                <div style="background-color:{bg_color}; border-radius:12px; padding:16px; margin-bottom:12px; text-align:center;">
+                    <div style="font-size:16px; font-weight:600; color:{text_color};">{m}</div>
+                    <div style="font-size:26px; font-weight:800; color:{text_color}; margin:6px 0;">{amount_text}</div>
+                    <div style="font-size:14px; color:{text_color};">{status_text}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
     st.divider()
 
