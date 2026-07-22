@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import date
 from supabase import create_client
 
-st.title("🌤️ 彩云计 · 云南之旅分账")
+st.title("🌤️ 彩云计 · 云南之旅の账")
 
 @st.cache_resource
 def get_client():
@@ -30,18 +30,18 @@ def load_debt_repayments():
     return res.data
 
 # ---------- 成员管理 ----------
-st.header("👥 成员管理 (Members)")
+st.header("👥 都有谁？ (Members)")
 
-new_member = st.text_input("输入昵称，添加新成员")
+new_member = st.text_input("输入昵称，加人")
 
 members = load_members()
 member_names = [m["name"] for m in members]
 
-if st.button("添加成员 (Add Member)"):
+if st.button("加人 (Add Member)"):
     if new_member.strip() == "":
-        st.warning("昵称不能是空的！")
+        st.warning("不能空！")
     elif new_member in member_names:
-        st.warning("这个昵称已经存在了！")
+        st.warning("有过了，重写！")
     else:
         supabase.table("members").insert({"name": new_member}).execute()
         st.success(f"已添加成员：{new_member}")
@@ -106,7 +106,7 @@ else:
 
     if st.button("添加支出 (Add Expense)"):
         if expense_name.strip() == "":
-            st.warning("请填写项目名称！")
+            st.warning("花什么！")
         elif amount <= 0:
             st.warning("金额必须大于 0！")
         elif expense_type == "团体开销" and not split_members:
@@ -179,7 +179,7 @@ else:
 
 expenses = load_expenses()
 
-st.subheader("📋 支出记录列表")
+st.subheader("📋 花销记录列表")
 if expenses:
     for e in expenses:
         col1, col2 = st.columns([5, 1])
@@ -191,7 +191,7 @@ if expenses:
                 supabase.table("expenses").delete().eq("id", e["id"]).execute()
                 st.rerun()
 else:
-    st.write("还没有任何支出记录")
+    st.write("还没有任何花销")
 
 st.divider()
 
