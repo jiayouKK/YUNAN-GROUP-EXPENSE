@@ -94,7 +94,7 @@ else:
         split_members = [payer]
         creditor = payer
 
- if st.button("添加支出 (Add Expense)"):
+    if st.button("添加支出 (Add Expense)"):
         if expense_name.strip() == "":
             st.warning("请填写项目名称！")
         elif amount <= 0:
