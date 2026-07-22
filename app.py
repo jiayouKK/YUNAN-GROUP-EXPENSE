@@ -187,15 +187,45 @@ expenses = load_expenses()
 
 st.subheader("📋 花销记录列表")
 if expenses:
-    for e in expenses:
-        col1, col2 = st.columns([5, 1])
-        with col1:
-            note = f" | 最终收款: {e['creditor']}" if e.get("creditor") and e["creditor"] != e["payer"] else ""
-            st.write(f"**{e['item']}** ({e['category']}, {e['expense_date']}) - {e['amount']} MYR | 付款人: {e['payer']} | 类型: {e['expense_type']} | 分摊: {', '.join(e['split_members'])}{note}")
-        with col2:
-            if st.button("🗑️ 删除", key=f"delete_exp_{e['id']}"):
-                supabase.table("expenses").delete().eq("id", e["id"]).execute()
-                st.rerun()
+    dates_in_expenses = sorted(set(e["expense_date"] for e in expenses), reverse=True)
+
+    total_all = round(sum(e["amount"] for e in expenses), 2)
+    st.caption(f"共 {len(expenses)} 笔，总计 {total_all} MYR")
+
+    for exp_date in dates_in_expenses:
+        day_expenses = [e for e in expenses if e["expense_date"] == exp_date]
+        day_total = round(sum(e["amount"] for e in day_expenses), 2)
+
+        st.markdown(f"#### 📅 {exp_date}（共 {day_total} MYR）")
+
+        table_rows = []
+        for e in day_expenses:
+            note = f"→ {e['creditor']}" if e.get("creditor") and e["creditor"] != e["payer"] else "-"
+            table_rows.append({
+                "项目": e["item"],
+                "类别": e["category"],
+                "金额(MYR)": e["amount"],
+                "付款人": e["payer"],
+                "类型": e["expense_type"],
+                "分摊": ", ".join(e["split_members"]),
+                "最终收款": note,
+            })
+
+        st.dataframe(
+            pd.DataFrame(table_rows),
+            hide_index=True,
+            use_container_width=True,
+        )
+
+        with st.expander(f"删除 {exp_date} 的某一笔"):
+            for e in day_expenses:
+                dcol1, dcol2 = st.columns([5, 1])
+                with dcol1:
+                    st.write(f"{e['item']} - {e['amount']} MYR（{e['payer']} 垫付）")
+                with dcol2:
+                    if st.button("🗑️", key=f"delete_exp_{e['id']}"):
+                        supabase.table("expenses").delete().eq("id", e["id"]).execute()
+                        st.rerun()
 else:
     st.write("还没有任何花销")
 
