@@ -372,27 +372,64 @@ def remaining(d):
 if member_names and debts:
     st.subheader("📜 每笔债务明细")
     for d in debts:
-        rem = remaining(d)
-        paid = paid_by_debt.get(d["id"], 0)
-        if rem <= 0.01:
-            status = "✅ 已还清"
-        elif paid > 0:
-            status = f"🟡 已还 {paid}，剩 {rem}"
-        else:
-            status = f"❌ 未还 {rem}"
-        st.write(f"{d['debtor']} 欠 {d['creditor']} — {d['item']} ({d['category']}, {d['expense_date']}) 共 {d['amount']} 元 | {status}")
+        rem = remaining(d)if member_names and debts:
+    st.subheader("📜 每笔债务明细")
 
-        this_debt_repayments = [r for r in debt_repayments if r["debt_id"] == d["id"]]
-        if this_debt_repayments:
-            with st.expander(f"查看/管理这笔的还款记录（{len(this_debt_repayments)} 笔）"):
-                for r in this_debt_repayments:
-                    rcol1, rcol2 = st.columns([4, 1])
-                    with rcol1:
-                        st.write(f"- {r['repay_date']}：还了 {r['amount']} 元")
-                    with rcol2:
-                        if st.button("🗑️ 删除", key=f"delete_repay_{r['id']}"):
-                            supabase.table("debt_repayments").delete().eq("id", r["id"]).execute()
-                            st.rerun()
+    filter_option = st.radio("显示范围", ["只看未还清", "看全部"], horizontal=True, key="debt_filter")
+
+    # 按欠款人分组
+    debtors_in_debts = sorted(set(d["debtor"] for d in debts))
+
+    for debtor_name in debtors_in_debts:
+        person_debts = [d for d in debts if d["debtor"] == debtor_name]
+
+        if filter_option == "只看未还清":
+            person_debts = [d for d in person_debts if remaining(d) > 0.01]
+
+        if not person_debts:
+            continue
+
+        total_owed = round(sum(remaining(d) for d in person_debts), 2)
+        st.markdown(f"#### 🧍 {debtor_name}（未还共 {total_owed} 元）")
+
+        table_rows = []
+        for d in person_debts:
+            rem = remaining(d)
+            paid = paid_by_debt.get(d["id"], 0)
+            if rem <= 0.01:
+                status = "✅ 已还清"
+            elif paid > 0:
+                status = f"🟡 还剩 {rem}"
+            else:
+                status = f"❌ 未还 {rem}"
+            table_rows.append({
+                "欠给谁": d["creditor"],
+                "项目": d["item"],
+                "类别": d["category"],
+                "日期": d["expense_date"],
+                "金额": d["amount"],
+                "状态": status,
+            })
+
+        st.dataframe(
+            pd.DataFrame(table_rows),
+            hide_index=True,
+            use_container_width=True,
+        )
+
+        with st.expander(f"管理 {debtor_name} 的还款记录"):
+            for d in person_debts:
+                this_debt_repayments = [r for r in debt_repayments if r["debt_id"] == d["id"]]
+                if this_debt_repayments:
+                    st.caption(f"「{d['item']}」欠 {d['creditor']}：")
+                    for r in this_debt_repayments:
+                        rcol1, rcol2 = st.columns([4, 1])
+                        with rcol1:
+                            st.write(f"　- {r['repay_date']}：还了 {r['amount']} 元")
+                        with rcol2:
+                            if st.button("🗑️", key=f"delete_repay_{r['id']}"):
+                                supabase.table("debt_repayments").delete().eq("id", r["id"]).execute()
+                                st.rerun()
 
     st.subheader("📊 还款进度（按类别）")
     df_debts = pd.DataFrame(debts)
