@@ -223,6 +223,102 @@ if expenses:
 else:
     st.write("还没有支出记录，暂时无法显示图表")
 
+# ---------- 预付款管理 ----------
+st.header("🎒 预付款管理 (Prepayments)")
+
+def load_prepayments():
+    res = supabase.table("prepayments").select("*").order("id").execute()
+    return res.data
+
+def load_prepayment_usage():
+    res = supabase.table("prepayment_usage").select("*").execute()
+    return res.data
+
+if not member_names:
+    st.info("请先添加成员，才能登记预付款")
+else:
+    st.subheader("➕ 登记新预付")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        pre_from = st.selectbox("谁预付？(From)", member_names, key="pre_from")
+    with col2:
+        pre_to = st.selectbox("交给谁保管？(To)", member_names, key="pre_to")
+    with col3:
+        pre_amount = st.number_input("预付金额", min_value=0.0, step=1.0, key="pre_amount")
+    pre_note = st.text_input("备注（可选）", key="pre_note")
+
+    if st.button("登记预付款"):
+        if pre_from == pre_to:
+            st.warning("预付人和保管人不能是同一个人！")
+        elif pre_amount <= 0:
+            st.warning("金额必须大于 0！")
+        else:
+            supabase.table("prepayments").insert({
+                "from_person": pre_from,
+                "to_person": pre_to,
+                "amount": pre_amount,
+                "prepay_date": str(date.today()),
+                "note": pre_note,
+            }).execute()
+            st.success(f"已登记：{pre_from} 预付 {pre_amount} 元给 {pre_to}")
+            st.rerun()
+
+    st.subheader("📜 预付款列表")
+    prepayments = load_prepayments()
+    usage_records = load_prepayment_usage()
+
+    used_by_prepay = {}
+    for u in usage_records:
+        used_by_prepay[u["prepayment_id"]] = used_by_prepay.get(u["prepayment_id"], 0) + u["amount"]
+
+    if prepayments:
+        for p in prepayments:
+            used = used_by_prepay.get(p["id"], 0)
+            remaining_amt = round(p["amount"] - used, 2)
+            note_str = f"（{p['note']}）" if p.get("note") else ""
+            st.write(f"**{p['from_person']} → {p['to_person']}**：预付 {p['amount']} 元{note_str} | 已用 {used} | 剩余 **{remaining_amt}**")
+
+            with st.expander(f"查看/使用这笔预付款（剩余 {remaining_amt}）"):
+                use_list = [u for u in usage_records if u["prepayment_id"] == p["id"]]
+                if use_list:
+                    for u in use_list:
+                        st.write(f"- 用了 {u['amount']} 元，{u['usage_date']}，备注：{u.get('note', '')}")
+
+                if remaining_amt > 0.01:
+                    use_amount = st.number_input(
+                        "本次使用/扣除金额", min_value=0.0, max_value=float(remaining_amt),
+                        step=1.0, key=f"use_amt_{p['id']}"
+                    )
+                    use_note = st.text_input("用途备注（例如：车票）", key=f"use_note_{p['id']}")
+                    if st.button("确认扣除", key=f"use_btn_{p['id']}"):
+                        if use_amount <= 0:
+                            st.warning("金额必须大于 0！")
+                        else:
+                            supabase.table("prepayment_usage").insert({
+                                "prepayment_id": p["id"],
+                                "amount": use_amount,
+                                "usage_date": str(date.today()),
+                                "note": use_note,
+                            }).execute()
+                            st.success(f"已扣除 {use_amount} 元")
+                            st.rerun()
+
+                    if st.button("剩余全部退还给预付人", key=f"refund_btn_{p['id']}"):
+                        supabase.table("prepayment_usage").insert({
+                            "prepayment_id": p["id"],
+                            "amount": remaining_amt,
+                            "usage_date": str(date.today()),
+                            "note": "退还",
+                        }).execute()
+                        st.success(f"已退还 {remaining_amt} 元")
+                        st.rerun()
+                else:
+                    st.write("✅ 这笔预付款已用完/已退还")
+    else:
+        st.write("还没有任何预付款记录")
+
+st.divider()
+
 # ---------- 债务明细与结算 ----------
 st.header("🧮 债务明细与结算 (Debts & Settlement)")
 
@@ -307,6 +403,6 @@ if member_names and debts:
                 st.success(f"已记录：{sel_debtor} 还给 {sel_creditor} {repay_amount} 元（{chosen_debt['item']}）")
                 st.rerun()
     else:
-        st.info(f"{sel_debtor} 目前没有欠 {sel_creditor} 未还清的款项")
+        st.info(f"{sel_debtor} 目前没有欠 {sel_creditor} 钱！")
 else:
     st.info("请先添加成员和团体支出，才能查看债务与结算")
