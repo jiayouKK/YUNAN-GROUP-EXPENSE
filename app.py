@@ -473,14 +473,17 @@ if member_names and debts:
         if d["creditor"] in net_balance:
             net_balance[d["creditor"]] += rem
 
-    for m in member_names:
+    cols = st.columns(min(len(member_names), 4))
+    for idx, m in enumerate(member_names):
         b = round(net_balance[m], 2)
-        if b > 0.01:
-            st.write(f"✅ **{m}**：应收回 {b} 元")
-        elif b < -0.01:
-            st.write(f"❌ **{m}**：还需支付 {abs(b)} 元")
-        else:
-            st.write(f"⚖️ **{m}**：没有欠款！")
+        col = cols[idx % len(cols)]
+        with col:
+            if b > 0.01:
+                st.metric(label=f"✅ {m}", value=f"{b} MYR", delta="应收回", delta_color="normal")
+            elif b < -0.01:
+                st.metric(label=f"❌ {m}", value=f"{abs(b)} MYR", delta="需支付", delta_color="inverse")
+            else:
+                st.metric(label=f"⚖️ {m}", value="打平", delta="没有欠款")
 
     st.divider()
 
