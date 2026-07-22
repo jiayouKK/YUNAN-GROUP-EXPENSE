@@ -220,6 +220,30 @@ if expenses:
         text_auto=True,
     )
     st.plotly_chart(fig_bar, use_container_width=True)
+    
+st.subheader("按每人开销统计")
+
+    # 每个人的"应付份额"展开成一行行
+    person_rows = []
+    for e in expenses:
+        n = len(e["split_members"])
+        share = round(e["amount"] / n, 2) if n > 0 else 0
+        for person in e["split_members"]:
+            person_rows.append({
+                "person": person,
+                "category": e["category"],
+                "amount": share,
+            })
+
+    df_person = pd.DataFrame(person_rows)
+
+    fig_person = px.bar(
+        df_person.groupby(["person", "category"])["amount"].sum().reset_index(),
+        x="person", y="amount", color="category",
+        labels={"person": "成员", "amount": "花费 (MYR)", "category": "类别"},
+        text_auto=True,
+    )
+    st.plotly_chart(fig_person, use_container_width=True)
 else:
     st.write("还没有支出记录，暂时无法显示图表")
 
