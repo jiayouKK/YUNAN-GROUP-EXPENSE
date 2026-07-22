@@ -57,6 +57,7 @@ else:
 st.divider()
 
 # ---------- 支出记录 ----------
+# ---------- 支出记录 ----------
 st.header("💰 记录支出 (Add Expense)")
 
 if not member_names:
@@ -79,20 +80,29 @@ else:
     payer = st.selectbox("谁先垫付的？(Payer)", member_names)
     expense_type = st.radio("类型 (Type)", ["个人开销", "团体开销"])
 
+    collector = None
+    via_collector = []
+
     if expense_type == "团体开销":
         split_members = st.multiselect(
             "这笔钱由谁平摊？(Split Among)",
             member_names,
             default=member_names
         )
-        same_as_payer = st.checkbox("钱最终归垫付人所有（一般情况）", value=True)
-        if same_as_payer:
-            creditor = payer
-        else:
-            creditor = st.selectbox("这笔钱最终要交给谁？(最终收款人)", member_names)
+
+        has_collector = st.checkbox("是否有人需要把钱交给「代收人」，再统一转给垫付人？")
+
+        if has_collector:
+            collector_options = [m for m in member_names if m != payer]
+            collector = st.selectbox("代收人是谁？", collector_options)
+
+            via_options = [m for m in split_members if m != payer and m != collector]
+            via_collector = st.multiselect(
+                f"以下哪些人的钱，是交给「{collector}」的？（没勾选的人，直接还给垫付人）",
+                via_options
+            )
     else:
         split_members = [payer]
-        creditor = payer
 
     if st.button("添加支出 (Add Expense)"):
         if expense_name.strip() == "":
@@ -112,43 +122,59 @@ else:
                 "payer": payer,
                 "expense_type": expense_type,
                 "split_members": split_members,
-                "creditor": creditor,
+                "creditor": payer,
             }).execute()
             expense_id = res.data[0]["id"]
 
             if expense_type == "团体开销":
                 share = round(amount_myr / len(split_members), 2)
                 debt_rows = []
-                # 一般成员（不是付款人、也不是最终收款人）欠"最终收款人"
+                collected_total = 0.0
+
                 for person in split_members:
-                    if person != payer and person != creditor:
+                    if person == payer:
+                        continue
+                    if collector and person in via_collector:
                         debt_rows.append({
                             "expense_id": expense_id,
                             "debtor": person,
-                            "creditor": creditor,
+                            "creditor": collector,
                             "amount": share,
                             "item": expense_name,
                             "category": category,
                             "expense_date": str(expense_date_input),
                         })
-                # 如果是代收（最终收款人 ≠ 付款人），收款人要把收到的总额转交给付款人
-                if creditor != payer:
-                    payer_share = share if payer in split_members else 0
-                    total_to_payer = round(amount_myr - payer_share, 2)
-                    if total_to_payer > 0:
+                        collected_total += share
+                    else:
                         debt_rows.append({
                             "expense_id": expense_id,
-                            "debtor": creditor,
+                            "debtor": person,
                             "creditor": payer,
-                            "amount": total_to_payer,
-                            "item": f"{expense_name}（代收转交）",
+                            "amount": share,
+                            "item": expense_name,
                             "category": category,
                             "expense_date": str(expense_date_input),
                         })
+
+                # 代收人自己那份，如果他也在平摊名单里且没走"直接还"路径，也要算进他要转交的总额
+                if collector and collector in split_members:
+                    collected_total += share
+
+                if collector and collected_total > 0:
+                    debt_rows.append({
+                        "expense_id": expense_id,
+                        "debtor": collector,
+                        "creditor": payer,
+                        "amount": round(collected_total, 2),
+                        "item": f"{expense_name}（代收转交）",
+                        "category": category,
+                        "expense_date": str(expense_date_input),
+                    })
+
                 if debt_rows:
                     supabase.table("debts").insert(debt_rows).execute()
 
-            st.success(f"已添加：{expense_name} - {amount_myr} MYR（{payer} 垫付，{creditor} 最终收款）")
+            st.success(f"已添加：{expense_name} - {amount_myr} MYR（{payer} 垫付）")
             st.rerun()
 
 expenses = load_expenses()
