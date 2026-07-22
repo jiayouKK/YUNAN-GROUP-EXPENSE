@@ -199,15 +199,29 @@ st.divider()
 st.header("📊 花费统计 (Charts)")
 
 if expenses:
+    import plotly.express as px
+
     df = pd.DataFrame(expenses)
-    st.subheader("按类别统计")
-    st.bar_chart(df.groupby("category")["amount"].sum())
-    st.subheader("按日期统计")
-    st.bar_chart(df.groupby("expense_date")["amount"].sum())
+
+    st.subheader("按类别统计（占比）")
+    by_category = df.groupby("category")["amount"].sum().reset_index()
+    fig_pie = px.pie(
+        by_category, names="category", values="amount",
+        hole=0.4,  # 甜甜圈样式，更好看
+    )
+    fig_pie.update_traces(textinfo="label+percent")
+    st.plotly_chart(fig_pie, use_container_width=True)
+
+    st.subheader("按日期统计（趋势）")
+    by_date = df.groupby("expense_date")["amount"].sum().reset_index()
+    fig_bar = px.bar(
+        by_date, x="expense_date", y="amount",
+        labels={"expense_date": "日期", "amount": "花费 (MYR)"},
+        text_auto=True,
+    )
+    st.plotly_chart(fig_bar, use_container_width=True)
 else:
     st.write("还没有支出记录，暂时无法显示图表")
-
-st.divider()
 
 # ---------- 债务明细与结算 ----------
 st.header("🧮 债务明细与结算 (Debts & Settlement)")
