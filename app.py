@@ -371,9 +371,6 @@ def remaining(d):
 
 if member_names and debts:
     st.subheader("📜 每笔债务明细")
-    for d in debts:
-        rem = remaining(d)if member_names and debts:
-    st.subheader("📜 每笔债务明细")
 
     filter_option = st.radio("显示范围", ["只看未还清", "看全部"], horizontal=True, key="debt_filter")
 
