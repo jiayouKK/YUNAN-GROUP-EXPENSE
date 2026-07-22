@@ -94,7 +94,7 @@ else:
         split_members = [payer]
         creditor = payer
 
-    if st.button("添加支出 (Add Expense)"):
+ if st.button("添加支出 (Add Expense)"):
         if expense_name.strip() == "":
             st.warning("请填写项目名称！")
         elif amount <= 0:
@@ -114,20 +114,34 @@ else:
                 "split_members": split_members,
                 "creditor": creditor,
             }).execute()
-
             expense_id = res.data[0]["id"]
 
             if expense_type == "团体开销":
                 share = round(amount_myr / len(split_members), 2)
                 debt_rows = []
+                # 一般成员（不是付款人、也不是最终收款人）欠"最终收款人"
                 for person in split_members:
-                    if person != creditor:
+                    if person != payer and person != creditor:
                         debt_rows.append({
                             "expense_id": expense_id,
                             "debtor": person,
                             "creditor": creditor,
                             "amount": share,
                             "item": expense_name,
+                            "category": category,
+                            "expense_date": str(expense_date_input),
+                        })
+                # 如果是代收（最终收款人 ≠ 付款人），收款人要把收到的总额转交给付款人
+                if creditor != payer:
+                    payer_share = share if payer in split_members else 0
+                    total_to_payer = round(amount_myr - payer_share, 2)
+                    if total_to_payer > 0:
+                        debt_rows.append({
+                            "expense_id": expense_id,
+                            "debtor": creditor,
+                            "creditor": payer,
+                            "amount": total_to_payer,
+                            "item": f"{expense_name}（代收转交）",
                             "category": category,
                             "expense_date": str(expense_date_input),
                         })
@@ -215,9 +229,9 @@ if member_names and debts:
         if b > 0.01:
             st.write(f"✅ **{m}**：应收回 {b} 元")
         elif b < -0.01:
-            st.write(f"❌ **{m}**：仍需支付 {abs(b)} 元")
+            st.write(f"❌ **{m}**：还需支付 {abs(b)} 元")
         else:
-            st.write(f"⚖️ **{m}**：打平")
+            st.write(f"⚖️ **{m}**：没有欠款！")
 
     st.divider()
 
