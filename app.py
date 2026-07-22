@@ -345,6 +345,18 @@ if member_names and debts:
             status = f"❌ 未还 {rem}"
         st.write(f"{d['debtor']} 欠 {d['creditor']} — {d['item']} ({d['category']}, {d['expense_date']}) 共 {d['amount']} 元 | {status}")
 
+        this_debt_repayments = [r for r in debt_repayments if r["debt_id"] == d["id"]]
+        if this_debt_repayments:
+            with st.expander(f"查看/管理这笔的还款记录（{len(this_debt_repayments)} 笔）"):
+                for r in this_debt_repayments:
+                    col1, col2 = st.columns([4, 1])
+                    with col1:
+                        st.write(f"- {r['repay_date']}：还了 {r['amount']} 元")
+                    with col2:
+                        if st.button("🗑️ 删除", key=f"delete_repay_{r['id']}"):
+                            supabase.table("debt_repayments").delete().eq("id", r["id"]).execute()
+                            st.rerun()
+
     st.subheader("📊 还款进度（按类别）")
     df_debts = pd.DataFrame(debts)
     df_debts["paid"] = df_debts["id"].map(lambda i: paid_by_debt.get(i, 0))
