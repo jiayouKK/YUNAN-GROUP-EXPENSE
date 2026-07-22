@@ -276,6 +276,33 @@ else:
             used = used_by_prepay.get(p["id"], 0)
             remaining_amt = round(p["amount"] - used, 2)
             note_str = f"（{p['note']}）" if p.get("note") else ""
+
+            col1, col2 = st.columns([5, 1])
+            with col1:
+                st.write(f"**{p['from_person']} → {p['to_person']}**：预付 {p['amount']} 元{note_str} | 已用 {used} | 剩余 **{remaining_amt}**")
+            with col2:
+                if st.button("🗑️ 删除整笔", key=f"delete_prepay_{p['id']}"):
+                    supabase.table("prepayment_usage").delete().eq("prepayment_id", p["id"]).execute()
+                    supabase.table("prepayments").delete().eq("id", p["id"]).execute()
+                    st.rerun()
+
+            with st.expander(f"查看/使用这笔预付款（剩余 {remaining_amt}）"):
+                use_list = [u for u in usage_records if u["prepayment_id"] == p["id"]]
+                if use_list:
+                    for u in use_list:
+                        col1, col2 = st.columns([4, 1])
+                        with col1:
+                            st.write(f"- 用了 {u['amount']} 元，{u['usage_date']}，备注：{u.get('note', '')}")
+                        with col2:
+                            if st.button("🗑️", key=f"delete_usage_{u['id']}"):
+                                supabase.table("prepayment_usage").delete().eq("id", u["id"]).execute()
+                                st.rerun()
+
+    if prepayments:
+        for p in prepayments:
+            used = used_by_prepay.get(p["id"], 0)
+            remaining_amt = round(p["amount"] - used, 2)
+            note_str = f"（{p['note']}）" if p.get("note") else ""
             st.write(f"**{p['from_person']} → {p['to_person']}**：预付 {p['amount']} 元{note_str} | 已用 {used} | 剩余 **{remaining_amt}**")
 
             with st.expander(f"查看/使用这笔预付款（剩余 {remaining_amt}）"):
