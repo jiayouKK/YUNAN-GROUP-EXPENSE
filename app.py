@@ -5,7 +5,6 @@ from supabase import create_client
 
 st.title("🌤️ 彩云计 · 云南之旅分账")
 
-# ---------- 连接 Supabase ----------
 @st.cache_resource
 def get_client():
     url = st.secrets["SUPABASE_URL"]
@@ -14,7 +13,6 @@ def get_client():
 
 supabase = get_client()
 
-# ---------- 读取数据函数 ----------
 def load_members():
     res = supabase.table("members").select("*").order("id").execute()
     return res.data
@@ -23,8 +21,12 @@ def load_expenses():
     res = supabase.table("expenses").select("*").order("id").execute()
     return res.data
 
-def load_repayments():
-    res = supabase.table("repayments").select("*").order("id").execute()
+def load_debts():
+    res = supabase.table("debts").select("*").order("id").execute()
+    return res.data
+
+def load_debt_repayments():
+    res = supabase.table("debt_repayments").select("*").execute()
     return res.data
 
 # ---------- 成员管理 ----------
@@ -62,7 +64,7 @@ if not member_names:
 else:
     expense_name = st.text_input("项目名称 (例如：午餐)")
     category = st.selectbox("类别 (Category)", ["交通", "住宿", "餐饮", "娱乐", "其他"])
-    expense_date = st.date_input("日期 (Date)", value=date.today())
+    expense_date_input = st.date_input("日期 (Date)", value=date.today())
 
     currency = st.selectbox("币种 (Currency)", ["马币 (MYR)", "人民币 (CNY)"])
     amount = st.number_input("金额 (Amount，原始币种)", min_value=0.0, step=1.0)
@@ -83,8 +85,14 @@ else:
             member_names,
             default=member_names
         )
+        same_as_payer = st.checkbox("钱最终归垫付人所有（一般情况）", value=True)
+        if same_as_payer:
+            creditor = payer
+        else:
+            creditor = st.selectbox("这笔钱最终要交给谁？(最终收款人)", member_names)
     else:
         split_members = [payer]
+        creditor = payer
 
     if st.button("添加支出 (Add Expense)"):
         if expense_name.strip() == "":
@@ -94,18 +102,39 @@ else:
         elif expense_type == "团体开销" and not split_members:
             st.warning("请至少勾选一个分摊对象！")
         else:
-            supabase.table("expenses").insert({
+            res = supabase.table("expenses").insert({
                 "item": expense_name,
                 "category": category,
-                "expense_date": str(expense_date),
+                "expense_date": str(expense_date_input),
                 "currency": currency,
                 "original_amount": amount,
                 "amount": amount_myr,
                 "payer": payer,
                 "expense_type": expense_type,
                 "split_members": split_members,
+                "creditor": creditor,
             }).execute()
-            st.success(f"已添加：{expense_name} - {amount_myr} MYR（{payer} 垫付）")
+
+            expense_id = res.data[0]["id"]
+
+            if expense_type == "团体开销":
+                share = round(amount_myr / len(split_members), 2)
+                debt_rows = []
+                for person in split_members:
+                    if person != creditor:
+                        debt_rows.append({
+                            "expense_id": expense_id,
+                            "debtor": person,
+                            "creditor": creditor,
+                            "amount": share,
+                            "item": expense_name,
+                            "category": category,
+                            "expense_date": str(expense_date_input),
+                        })
+                if debt_rows:
+                    supabase.table("debts").insert(debt_rows).execute()
+
+            st.success(f"已添加：{expense_name} - {amount_myr} MYR（{payer} 垫付，{creditor} 最终收款）")
             st.rerun()
 
 expenses = load_expenses()
@@ -115,7 +144,8 @@ if expenses:
     for e in expenses:
         col1, col2 = st.columns([5, 1])
         with col1:
-            st.write(f"**{e['item']}** ({e['category']}, {e['expense_date']}) - {e['amount']} MYR | 付款人: {e['payer']} | 类型: {e['expense_type']} | 分摊: {', '.join(e['split_members'])}")
+            note = f" | 最终收款: {e['creditor']}" if e.get("creditor") and e["creditor"] != e["payer"] else ""
+            st.write(f"**{e['item']}** ({e['category']}, {e['expense_date']}) - {e['amount']} MYR | 付款人: {e['payer']} | 类型: {e['expense_type']} | 分摊: {', '.join(e['split_members'])}{note}")
         with col2:
             if st.button("🗑️ 删除", key=f"delete_exp_{e['id']}"):
                 supabase.table("expenses").delete().eq("id", e["id"]).execute()
@@ -130,122 +160,99 @@ st.header("📊 花费统计 (Charts)")
 
 if expenses:
     df = pd.DataFrame(expenses)
-
     st.subheader("按类别统计")
-    by_category = df.groupby("category")["amount"].sum()
-    st.bar_chart(by_category)
-
+    st.bar_chart(df.groupby("category")["amount"].sum())
     st.subheader("按日期统计")
-    by_date = df.groupby("expense_date")["amount"].sum()
-    st.bar_chart(by_date)
+    st.bar_chart(df.groupby("expense_date")["amount"].sum())
 else:
     st.write("还没有支出记录，暂时无法显示图表")
 
 st.divider()
 
-# ---------- 结算 ----------
-st.header("🧮 结算 (Settlement)")
+# ---------- 债务明细与结算 ----------
+st.header("🧮 债务明细与结算 (Debts & Settlement)")
 
-repayments = load_repayments()
+debts = load_debts()
+debt_repayments = load_debt_repayments()
 
-if member_names and expenses:
-    should_pay = {m: 0.0 for m in member_names}
-    already_paid = {m: 0.0 for m in member_names}
+paid_by_debt = {}
+for r in debt_repayments:
+    paid_by_debt[r["debt_id"]] = paid_by_debt.get(r["debt_id"], 0) + r["amount"]
 
-    for e in expenses:
-        already_paid[e["payer"]] += e["amount"]
-        share = e["amount"] / len(e["split_members"])
-        for person in e["split_members"]:
-            if person in should_pay:
-                should_pay[person] += share
+def remaining(d):
+    return round(d["amount"] - paid_by_debt.get(d["id"], 0), 2)
 
-    balance = {m: already_paid[m] - should_pay[m] for m in member_names}
-
-    for r in repayments:
-        if r["from_person"] in balance:
-            balance[r["from_person"]] += r["amount"]
-        if r["to_person"] in balance:
-            balance[r["to_person"]] -= r["amount"]
-
-    balance = {m: round(b, 2) for m, b in balance.items()}
-
-    st.subheader("每人余额（已扣除还款记录）")
-    for m in member_names:
-        if balance[m] > 0.01:
-            st.write(f"✅ **{m}**：应收回 {balance[m]} 元")
-        elif balance[m] < -0.01:
-            st.write(f"❌ **{m}**：需支付 {abs(balance[m])} 元")
+if member_names and debts:
+    st.subheader("📜 每笔债务明细")
+    for d in debts:
+        rem = remaining(d)
+        paid = paid_by_debt.get(d["id"], 0)
+        if rem <= 0.01:
+            status = "✅ 已还清"
+        elif paid > 0:
+            status = f"🟡 已还 {paid}，剩 {rem}"
         else:
-            st.write(f"⚖️ **{m}**：不欠不收，刚好打平")
+            status = f"❌ 未还 {rem}"
+        st.write(f"{d['debtor']} 欠 {d['creditor']} — {d['item']} ({d['category']}, {d['expense_date']}) 共 {d['amount']} 元 | {status}")
 
-    st.subheader("💸 具体转账建议")
+    st.subheader("📊 还款进度（按类别）")
+    df_debts = pd.DataFrame(debts)
+    df_debts["paid"] = df_debts["id"].map(lambda i: paid_by_debt.get(i, 0))
+    df_debts["remaining"] = df_debts["amount"] - df_debts["paid"]
+    st.bar_chart(df_debts.groupby("category")[["paid", "remaining"]].sum())
 
-    creditors = sorted([(m, b) for m, b in balance.items() if b > 0.01], key=lambda x: -x[1])
-    debtors = sorted([(m, -b) for m, b in balance.items() if b < -0.01], key=lambda x: -x[1])
+    st.subheader("💰 净余额总览")
+    net_balance = {m: 0.0 for m in member_names}
+    for d in debts:
+        rem = remaining(d)
+        if d["debtor"] in net_balance:
+            net_balance[d["debtor"]] -= rem
+        if d["creditor"] in net_balance:
+            net_balance[d["creditor"]] += rem
 
-    transactions = []
-    i, j = 0, 0
-    while i < len(debtors) and j < len(creditors):
-        debtor, debt = debtors[i]
-        creditor, credit = creditors[j]
-        pay_amount = round(min(debt, credit), 2)
-
-        if pay_amount > 0:
-            transactions.append((debtor, creditor, pay_amount))
-
-        debtors[i] = (debtor, debt - pay_amount)
-        creditors[j] = (creditor, credit - pay_amount)
-
-        if debtors[i][1] <= 0.01:
-            i += 1
-        if creditors[j][1] <= 0.01:
-            j += 1
-
-    if transactions:
-        for debtor, creditor, amt in transactions:
-            st.write(f"👉 {debtor} → {creditor}：{amt} 元")
-    else:
-        st.write("大家都打平了，不用转账！")
+    for m in member_names:
+        b = round(net_balance[m], 2)
+        if b > 0.01:
+            st.write(f"✅ **{m}**：应收回 {b} 元")
+        elif b < -0.01:
+            st.write(f"❌ **{m}**：仍需支付 {abs(b)} 元")
+        else:
+            st.write(f"⚖️ **{m}**：打平")
 
     st.divider()
 
-    # ---------- 标记还款 ----------
-    st.subheader("✅ 标记还款 (Mark as Paid)")
+    st.subheader("✅ 标记还款 (Mark Repayment)")
 
-    col1, col2, col3 = st.columns(3)
+    col1, col2 = st.columns(2)
     with col1:
-        pay_from = st.selectbox("谁还钱 (From)", member_names, key="pay_from")
+        sel_debtor = st.selectbox("谁还钱 (欠款人)", member_names, key="sel_debtor")
     with col2:
-        pay_to = st.selectbox("还给谁 (To)", member_names, key="pay_to")
-    with col3:
-        pay_amount_input = st.number_input("金额", min_value=0.0, step=1.0, key="pay_amount")
+        sel_creditor = st.selectbox("还给谁 (收款人)", member_names, key="sel_creditor")
 
-    if st.button("标记为已还款"):
-        if pay_from == pay_to:
-            st.warning("还款人和收款人不能是同一个人！")
-        elif pay_amount_input <= 0:
-            st.warning("金额必须大于 0！")
-        else:
-            supabase.table("repayments").insert({
-                "from_person": pay_from,
-                "to_person": pay_to,
-                "amount": pay_amount_input,
-            }).execute()
-            st.success(f"已记录：{pay_from} 还给 {pay_to} {pay_amount_input} 元")
-            st.rerun()
+    relevant_debts = [d for d in debts if d["debtor"] == sel_debtor and d["creditor"] == sel_creditor and remaining(d) > 0.01]
 
-    st.subheader("📜 还款记录")
-    if repayments:
-        for r in repayments:
-            col1, col2 = st.columns([5, 1])
-            with col1:
-                st.write(f"{r['from_person']} → {r['to_person']}：{r['amount']} 元")
-            with col2:
-                if st.button("🗑️ 删除", key=f"delete_repay_{r['id']}"):
-                    supabase.table("repayments").delete().eq("id", r["id"]).execute()
-                    st.rerun()
+    if relevant_debts:
+        options = {f"{d['item']} ({d['category']}, {d['expense_date']}) - 剩 {remaining(d)} 元": d for d in relevant_debts}
+        chosen_label = st.selectbox("选择要还的债务", list(options.keys()))
+        chosen_debt = options[chosen_label]
+
+        repay_amount = st.number_input(
+            "本次还款金额", min_value=0.0, max_value=float(remaining(chosen_debt)),
+            step=1.0, value=float(remaining(chosen_debt))
+        )
+
+        if st.button("确认还款"):
+            if repay_amount <= 0:
+                st.warning("金额必须大于 0！")
+            else:
+                supabase.table("debt_repayments").insert({
+                    "debt_id": chosen_debt["id"],
+                    "amount": repay_amount,
+                    "repay_date": str(date.today()),
+                }).execute()
+                st.success(f"已记录：{sel_debtor} 还给 {sel_creditor} {repay_amount} 元（{chosen_debt['item']}）")
+                st.rerun()
     else:
-        st.write("还没有还款记录")
-
+        st.info(f"{sel_debtor} 目前没有欠 {sel_creditor} 未还清的款项")
 else:
-    st.info("请先添加成员和支出记录，才能计算结算")
+    st.info("请先添加成员和团体支出，才能查看债务与结算")
