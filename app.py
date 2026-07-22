@@ -29,6 +29,14 @@ def load_debt_repayments():
     res = supabase.table("debt_repayments").select("*").execute()
     return res.data
 
+def load_prepayments():
+    res = supabase.table("prepayments").select("*").order("id").execute()
+    return res.data
+
+def load_prepayment_usage():
+    res = supabase.table("prepayment_usage").select("*").execute()
+    return res.data
+
 # ---------- 成员管理 ----------
 st.header("👥 都有谁？ (Members)")
 
@@ -56,7 +64,6 @@ else:
 
 st.divider()
 
-# ---------- 支出记录 ----------
 # ---------- 支出记录 ----------
 st.header("💰 记录支出 (Add Expense)")
 
@@ -156,7 +163,6 @@ else:
                             "expense_date": str(expense_date_input),
                         })
 
-                # 代收人自己那份，如果他也在平摊名单里且没走"直接还"路径，也要算进他要转交的总额
                 if collector and collector in split_members:
                     collected_total += share
 
@@ -207,7 +213,7 @@ if expenses:
     by_category = df.groupby("category")["amount"].sum().reset_index()
     fig_pie = px.pie(
         by_category, names="category", values="amount",
-        hole=0.4,  # 甜甜圈样式，更好看
+        hole=0.4,
     )
     fig_pie.update_traces(textinfo="label+percent")
     st.plotly_chart(fig_pie, use_container_width=True)
@@ -220,10 +226,9 @@ if expenses:
         text_auto=True,
     )
     st.plotly_chart(fig_bar, use_container_width=True)
-    
-st.subheader("按每人开销统计")
 
-    # 每个人的"应付份额"展开成一行行
+    st.subheader("按每人开销统计")
+
     person_rows = []
     for e in expenses:
         n = len(e["split_members"])
@@ -247,16 +252,10 @@ st.subheader("按每人开销统计")
 else:
     st.write("还没有支出记录，暂时无法显示图表")
 
+st.divider()
+
 # ---------- 预付款管理 ----------
 st.header("🎒 预付款管理 (Prepayments)")
-
-def load_prepayments():
-    res = supabase.table("prepayments").select("*").order("id").execute()
-    return res.data
-
-def load_prepayment_usage():
-    res = supabase.table("prepayment_usage").select("*").execute()
-    return res.data
 
 if not member_names:
     st.info("请先添加成员，才能登记预付款")
@@ -314,26 +313,13 @@ else:
                 use_list = [u for u in usage_records if u["prepayment_id"] == p["id"]]
                 if use_list:
                     for u in use_list:
-                        col1, col2 = st.columns([4, 1])
-                        with col1:
+                        ucol1, ucol2 = st.columns([4, 1])
+                        with ucol1:
                             st.write(f"- 用了 {u['amount']} 元，{u['usage_date']}，备注：{u.get('note', '')}")
-                        with col2:
+                        with ucol2:
                             if st.button("🗑️", key=f"delete_usage_{u['id']}"):
                                 supabase.table("prepayment_usage").delete().eq("id", u["id"]).execute()
                                 st.rerun()
-
-    if prepayments:
-        for p in prepayments:
-            used = used_by_prepay.get(p["id"], 0)
-            remaining_amt = round(p["amount"] - used, 2)
-            note_str = f"（{p['note']}）" if p.get("note") else ""
-            st.write(f"**{p['from_person']} → {p['to_person']}**：预付 {p['amount']} 元{note_str} | 已用 {used} | 剩余 **{remaining_amt}**")
-
-            with st.expander(f"查看/使用这笔预付款（剩余 {remaining_amt}）"):
-                use_list = [u for u in usage_records if u["prepayment_id"] == p["id"]]
-                if use_list:
-                    for u in use_list:
-                        st.write(f"- 用了 {u['amount']} 元，{u['usage_date']}，备注：{u.get('note', '')}")
 
                 if remaining_amt > 0.01:
                     use_amount = st.number_input(
@@ -400,10 +386,10 @@ if member_names and debts:
         if this_debt_repayments:
             with st.expander(f"查看/管理这笔的还款记录（{len(this_debt_repayments)} 笔）"):
                 for r in this_debt_repayments:
-                    col1, col2 = st.columns([4, 1])
-                    with col1:
+                    rcol1, rcol2 = st.columns([4, 1])
+                    with rcol1:
                         st.write(f"- {r['repay_date']}：还了 {r['amount']} 元")
-                    with col2:
+                    with rcol2:
                         if st.button("🗑️ 删除", key=f"delete_repay_{r['id']}"):
                             supabase.table("debt_repayments").delete().eq("id", r["id"]).execute()
                             st.rerun()
