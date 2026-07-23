@@ -416,33 +416,54 @@ if member_names and debts:
         if not person_debts:
             continue
 
+        # 区分"自己开销"和"代收转交"两类
+        own_debts = [d for d in person_debts if "（代收转交）" not in d["item"]]
+        collect_debts = [d for d in person_debts if "（代收转交）" in d["item"]]
+
         total_owed = round(sum(remaining(d) for d in person_debts), 2)
+        own_total = round(sum(remaining(d) for d in own_debts), 2)
+        collect_total = round(sum(remaining(d) for d in collect_debts), 2)
+
         st.markdown(f"#### 🧍 {debtor_name}（未还共 {total_owed} 元）")
+        if collect_debts:
+            st.caption(f"其中：自己开销 {own_total} 元 ｜ 代收转交 {collect_total} 元")
 
-        table_rows = []
-        for d in person_debts:
-            rem = remaining(d)
-            paid = paid_by_debt.get(d["id"], 0)
-            if rem <= 0.01:
-                status = "✅ 已还清"
-            elif paid > 0:
-                status = f"🟡 还剩 {rem}"
-            else:
-                status = f"❌ 未还 {rem}"
-            table_rows.append({
-                "欠给谁": d["creditor"],
-                "项目": d["item"],
-                "类别": d["category"],
-                "日期": d["expense_date"],
-                "金额": d["amount"],
-                "状态": status,
-            })
+        def build_table(rows):
+            table_rows = []
+            for d in rows:
+                rem = remaining(d)
+                paid = paid_by_debt.get(d["id"], 0)
+                if rem <= 0.01:
+                    status = "✅ 已还清"
+                elif paid > 0:
+                    status = f"🟡 还剩 {rem}"
+                else:
+                    status = f"❌ 未还 {rem}"
+                table_rows.append({
+                    "欠给谁": d["creditor"],
+                    "项目": d["item"],
+                    "类别": d["category"],
+                    "日期": d["expense_date"],
+                    "金额": d["amount"],
+                    "状态": status,
+                })
+            return table_rows
 
-        st.dataframe(
-            pd.DataFrame(table_rows),
-            hide_index=True,
-            use_container_width=True,
-        )
+        if own_debts:
+            st.markdown("**🧾 自己开销**")
+            st.dataframe(
+                pd.DataFrame(build_table(own_debts)),
+                hide_index=True,
+                use_container_width=True,
+            )
+
+        if collect_debts:
+            st.markdown("**🤝 代收转交**")
+            st.dataframe(
+                pd.DataFrame(build_table(collect_debts)),
+                hide_index=True,
+                use_container_width=True,
+            )
 
         with st.expander(f"管理 {debtor_name} 的还款记录"):
             for d in person_debts:
