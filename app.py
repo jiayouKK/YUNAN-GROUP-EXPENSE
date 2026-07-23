@@ -139,7 +139,7 @@ else:
                 collected_total = 0.0
 
                 for person in split_members:
-                    if person == payer:
+                    if person == payer or person == collector:
                         continue
                     if collector and person in via_collector:
                         debt_rows.append({
